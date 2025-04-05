@@ -25,9 +25,11 @@ cat << EOF > /etc/hotplug.d/iface/30-vpnroute
 #!/bin/sh
 
 sleep 10
-ip route add table vpn default dev tun1
+ip route add table vpn default dev tun0
 EOF
     fi
+
+    cp /etc/hotplug.d/iface/30-vpnroute /etc/hotplug.d/net/30-vpnroute
 }
 
 add_mark() {
@@ -190,7 +192,7 @@ add_tunnel() {
         if grep -q "option user 'sing-box'" /etc/config/sing-box; then
             sed -i "s/	option user \'sing-box\'/	option user \'root\'/" /etc/config/sing-box
         fi
-        if grep -q "tun1" /etc/sing-box/config.json; then
+        if grep -q "tun0" /etc/sing-box/config.json; then
         printf "\033[32;1mConfig /etc/sing-box/config.json already exists\033[0m\n"
         else
 cat << 'EOF' > /etc/sing-box/config.json
@@ -201,9 +203,9 @@ cat << 'EOF' > /etc/sing-box/config.json
   "inbounds": [
     {
       "type": "tun",
-      "interface_name": "tun1",
+      "interface_name": "tun0",
       "domain_strategy": "ipv4_only",
-      "inet4_address": "172.16.250.1/30",
+      "address": ["172.16.250.1/30"],
       "auto_route": false,
       "strict_route": false,
       "sniff": true 
@@ -321,7 +323,19 @@ dnsmasqfull() {
         opkg remove dnsmasq && opkg install dnsmasq-full --cache /tmp/
 
         [ -f /etc/config/dhcp-opkg ] && cp /etc/config/dhcp /etc/config/dhcp-old && mv /etc/config/dhcp-opkg /etc/config/dhcp
-fi
+    fi
+}
+
+dnsmasqconfdir() {
+    if [ $VERSION_ID -ge 24 ]; then
+        if uci get dhcp.@dnsmasq[0].confdir | grep -q /tmp/dnsmasq.d; then
+            printf "\033[32;1mconfdir already set\033[0m\n"
+        else
+            printf "\033[32;1mSetting confdir\033[0m\n"
+            uci set dhcp.@dnsmasq[0].confdir='/tmp/dnsmasq.d'
+            uci commit dhcp
+        fi
+    fi
 }
 
 remove_forwarding() {
@@ -339,9 +353,9 @@ add_zone() {
         printf "\033[32;1mCreate zone\033[0m\n"
 
         # Delete exists zone
-        zone_tun_id=$(uci show firewall | grep -E '@zone.*tun1' | awk -F '[][{}]' '{print $2}' | head -n 1)
+        zone_tun_id=$(uci show firewall | grep -E '@zone.*tun0' | awk -F '[][{}]' '{print $2}' | head -n 1)
         if [ "$zone_tun_id" == 0 ] || [ "$zone_tun_id" == 1 ]; then
-            printf "\033[32;1mtun1 zone has an identifier of 0 or 1. That's not ok. Fix your firewall. lan and wan zones should have identifiers 0 and 1. \033[0m\n"
+            printf "\033[32;1mtun0 zone has an identifier of 0 or 1. That's not ok. Fix your firewall. lan and wan zones should have identifiers 0 and 1. \033[0m\n"
             exit 1
         fi
         if [ ! -z "$zone_tun_id" ]; then
@@ -373,7 +387,7 @@ add_zone() {
         elif [ "$TUNNEL" == awg ]; then
             uci set firewall.@zone[-1].network='awg0'
         elif [ "$TUNNEL" == singbox ] || [ "$TUNNEL" == ovpn ] || [ "$TUNNEL" == tun2socks ]; then
-            uci set firewall.@zone[-1].device='tun1'
+            uci set firewall.@zone[-1].device='tun0'
         fi
         if [ "$TUNNEL" == wg ] || [ "$TUNNEL" == awg ] || [ "$TUNNEL" == ovpn ] || [ "$TUNNEL" == tun2socks ]; then
             uci set firewall.@zone[-1].forward='REJECT'
@@ -562,19 +576,22 @@ add_dns_resolver() {
 }
 
 add_packages() {
-    if opkg list-installed | grep -q "curl -"; then
-        printf "\033[32;1mCurl already installed\033[0m\n"
-    else
-        printf "\033[32;1mInstall curl\033[0m\n"
-        opkg install curl
-    fi
-
-    if opkg list-installed | grep -q nano; then
-        printf "\033[32;1mNano already installed\033[0m\n"
-    else
-        printf "\033[32;1mInstall nano\033[0m\n"
-        opkg install nano
-    fi
+    for package in curl nano; do
+        if opkg list-installed | grep -q "^$package "; then
+            printf "\033[32;1m$package already installed\033[0m\n"
+        else
+            printf "\033[32;1mInstalling $package...\033[0m\n"
+            opkg install "$package"
+            
+            if "$package" --version >/dev/null 2>&1; then
+											   
+                printf "\033[32;1m$package was successfully installed and available\033[0m\n"
+            else
+                printf "\033[31;1mError: failed to install $package\033[0m\n"
+                exit 1
+            fi
+        fi
+    done
 }
 
 add_getdomains() {
@@ -956,8 +973,8 @@ printf "\033[34;1mVersion: $OPENWRT_RELEASE\033[0m\n"
 
 VERSION_ID=$(echo $VERSION | awk -F. '{print $1}')
 
-if [ "$VERSION_ID" -ne 23 ]; then
-    printf "\033[31;1mScript only support OpenWrt 23.05\033[0m\n"
+if [ "$VERSION_ID" -ne 23 ] && [ "$VERSION_ID" -ne 24 ]; then
+    printf "\033[31;1mScript only support OpenWrt 23.05 and 24.10\033[0m\n"
     echo "For OpenWrt 21.02 and 22.03 you can:"
     echo "1) Use ansible https://github.com/itdoginfo/domain-routing-openwrt"
     echo "2) Configure manually. Old manual: https://itdog.info/tochechnaya-marshrutizaciya-na-routere-s-openwrt-wireguard-i-dnscrypt/"
@@ -981,6 +998,8 @@ show_manual
 add_set
 
 dnsmasqfull
+
+dnsmasqconfdir
 
 add_dns_resolver
 
