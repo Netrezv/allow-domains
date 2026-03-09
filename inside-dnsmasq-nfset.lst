@@ -292,6 +292,7 @@ nftset=/facebook.net/4#inet#fw4#vpn_domains
 nftset=/fansly.com/4#inet#fw4#vpn_domains
 nftset=/fast-torrent.club/4#inet#fw4#vpn_domains
 nftset=/fast.com/4#inet#fw4#vpn_domains
+nftset=/fastly.net/4#inet#fw4#vpn_domains
 nftset=/fastpic.org/4#inet#fw4#vpn_domains
 nftset=/fb.com/4#inet#fw4#vpn_domains
 nftset=/fbcdn.net/4#inet#fw4#vpn_domains
